@@ -47,13 +47,16 @@ static char* concat_args(int argc, char** argv) {
 static inline void insert_line(int fd, const char* text, size_t len, int line) {
     static const char nl = '\n';
 
+    printf("%d\t%s\n", line, text);
+
+    if (fd < 0)
+        return;
+
     write(fd, text, len);
     write(fd, &nl, 1);
-
-    printf("%d\t%s\n", line, text);
 }
 
-static void copy_file(int fd_old, int fd_new, char mode, int line, const char* text) {
+static int copy_file(int fd_old, int fd_new, char mode, int line, const char* text) {
     int current_line = -1;
 
     char buffer[LINE_BUFFER];
@@ -83,6 +86,8 @@ static void copy_file(int fd_old, int fd_new, char mode, int line, const char* t
         if (len >= 0)
             insert_line(fd_new, buffer, len, current_line);
     }
+
+    return current_line;
 }
 
 static int file_append(const char* file, const char* text) {
@@ -92,12 +97,10 @@ static int file_append(const char* file, const char* text) {
     if (fd < 0)
         return -1;
 
-    if (lseek(fd, 0, SEEK_END) < 0) {
-        printf("seek error\n");
-        return -1;
-    }
+    int lines = copy_file(fd, -1, 'p', 0, 0);
 
-    insert_line(fd, text, strlen(text), 0);
+    if (text != NULL)
+        insert_line(fd, text, strlen(text), lines);
 
     close(fd);
 
@@ -149,10 +152,14 @@ int main(int argc, char** argv) {
     if (text == NULL && (mode == 'i' || mode == 'r' || mode == 'a'))
         return -1;
 
-    if (mode == 'a')
+    switch (mode) {
+    case 'a':  // append
         return file_append(file, text);
-    else
+    case 'p':  // print
+        return file_append(file, NULL);
+    default:
         return file_edit(file, mode, line, text);
+    }
 
 	return 0;
 }
