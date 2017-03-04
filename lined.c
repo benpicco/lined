@@ -44,7 +44,7 @@ static char* concat_args(int argc, char** argv) {
 	return all_args;
 }
 
-static inline void insert_line(int fd, const char* text, size_t len, int line) {
+static void insert_line(int fd, const char* text, size_t len, int line) {
 	static const char nl = '\n';
 
 	printf("%d\t%s\n", line, text);
