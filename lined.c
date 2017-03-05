@@ -7,6 +7,14 @@
 
 #define LINE_BUFFER 128
 
+typedef struct {
+	int fd_old;
+	int fd_new;
+	int line;
+} editor_t;
+
+typedef int edit_function_t(editor_t*, void*, const char*);
+
 int _getline(char* buffer, size_t size, int fd) {
 
 	int in = -1;
@@ -45,81 +53,100 @@ static char* concat_args(int argc, char** argv) {
 	return all_args;
 }
 
-static bool insert_line(int fd, const char* text, size_t len, int line) {
+static bool insert_line(editor_t* file, const char* text, size_t len) {
 	static const char nl = '\n';
 
-	printf("%d\t%s\n", line, text);
+	printf("%d\t%s\n", file->line, text);
 
-	if (fd < 0)
-		return false;
+	file->line++;
 
-	if (write(fd, text, len) != len)	
+	if (file->fd_new == file->fd_old) // hack for append - print only
+		return true;
+	if (write(file->fd_new, text, len) != len)
 		return false;
-	if (write(fd, &nl, 1) != 1)
+	if (write(file->fd_new, &nl, 1) != 1)
 		return false;
 
 	return true;
 }
 
-static int copy_file(int fd_old, int fd_new, char mode, int line, const char* text) {
-	int current_line = -1;
+static int copy_file(editor_t* file, edit_function_t* function, void* condition, const char* text) {
 
 	char buffer[LINE_BUFFER];
 	int len = 0;
 	while (len >= 0) {
 
-		len = _getline(buffer, sizeof(buffer), fd_old);
-		++current_line;
+		len = _getline(buffer, sizeof(buffer), file->fd_old);
 
-		// delete - skip line
-		if (mode == 'd' && current_line == line) {
+		int res = function(file, condition, text);
+
+		if (res > 0)
 			continue;
-		}
-
-		// insert line
-		if (mode == 'i' && current_line == line) {
-			if (!insert_line(fd_new, text, strlen(text), current_line++))
-				return -1;
-		}
-
-		// replace line
-		if (mode == 'r' && current_line == line) {
-			if (!insert_line(fd_new, text, strlen(text), current_line))
-				return -1;
-
-			continue;
-		}
+		if (res < 0)
+			return res;
 
 		if (len >= 0) {
-			if (!insert_line(fd_new, buffer, len, current_line))
+			if (!insert_line(file, buffer, len))
 				return -1;
 		}
 	}
 
-	return current_line;
+	return 0;
+}
+
+static int _delete(editor_t* file, void* line, const char* text) {
+	if (file->line != *(int*)line)
+		return 0;
+
+	*(int*)line = -1;
+	return 1; // skip line
+}
+
+static int _insert(editor_t* file, void* line, const char* text) {
+	if (file->line != *(int*)line)
+		return 0;
+	if (!insert_line(file, text, strlen(text)))
+		return -1;
+	return 0;
+}
+
+static int _replace(editor_t* file, void* line, const char* text) {
+	if (file->line != *(int*)line)
+		return 0;
+	if (!insert_line(file, text, strlen(text)))
+		return -1;
+	return 1; // skip line
+}
+
+static int _no_op(editor_t* file, void* condition, const char* text) {
+	return 0;
 }
 
 static int file_append(const char* file, const char* text) {
 
-	int fd = open(file, O_RDWR | O_CREAT, 0666);
+	editor_t file_state;
+	file_state.fd_old = open(file, O_RDWR | O_CREAT, 0666);
+	file_state.fd_new = file_state.fd_old;
+	file_state.line = 0;
 
-	if (fd < 0)
+	if (file_state.fd_old < 0)
 		return -1;
 
-	int lines = copy_file(fd, -1, 'p', 0, 0);
+	copy_file(&file_state, _no_op, NULL, NULL);
 
 	if (text != NULL)
-		insert_line(fd, text, strlen(text), lines);
+		insert_line(&file_state, text, strlen(text));
 
-	close(fd);
+	close(file_state.fd_old);
 
 	return 0;
 }
 
-static int file_edit(const char* file, char mode, int line, const char* text) {
+static int file_edit(const char* file, edit_function_t* function, void* condition, const char* text) {
 
-	int fd = open(file, O_RDONLY);
-	if (fd < 0) {
+	editor_t file_state;
+	file_state.fd_old = open(file, O_RDONLY);
+	if (file_state.fd_old < 0) {
 		printf("can't open %s\n", file);
 		return -1;
 	}
@@ -128,18 +155,20 @@ static int file_edit(const char* file, char mode, int line, const char* text) {
 	strcpy(file_tmp, file);
 	strcat(file_tmp, ".t");
 
-	int fd_new = open(file_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-	if (fd_new < 0) {
+	file_state.fd_new = open(file_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+	if (file_state.fd_new < 0) {
 		printf("can't open tmp file %s\n", file_tmp);
 
-		close(fd);
+		close(file_state.fd_old);
 		return -1;
 	}
 
-	int ret = copy_file(fd, fd_new, mode, line, text);
+	file_state.line = 0;
 
-	close(fd);
-	close(fd_new);
+	int ret = copy_file(&file_state, function, condition, text);
+
+	close(file_state.fd_old);
+	close(file_state.fd_new);
 
 	if (ret < 0) {
 		printf("error writing file\n");
@@ -171,8 +200,12 @@ int main(int argc, char** argv) {
 		return file_append(file, text);
 	case 'p':  // print
 		return file_append(file, NULL);
-	default:
-		return file_edit(file, mode, line, text);
+	case 'd': // delete
+		return file_edit(file, _delete, &line, NULL);
+	case 'r': // replace
+		return file_edit(file, _replace, &line, text);
+	case 'i': // insert
+		return file_edit(file, _insert, &line, text);
 	}
 
 	return 0;
