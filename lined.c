@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,16 +45,20 @@ static char* concat_args(int argc, char** argv) {
 	return all_args;
 }
 
-static void insert_line(int fd, const char* text, size_t len, int line) {
+static bool insert_line(int fd, const char* text, size_t len, int line) {
 	static const char nl = '\n';
 
 	printf("%d\t%s\n", line, text);
 
 	if (fd < 0)
-		return;
+		return false;
 
-	write(fd, text, len);
-	write(fd, &nl, 1);
+	if (write(fd, text, len) != len)	
+		return false;
+	if (write(fd, &nl, 1) != 1)
+		return false;
+
+	return true;
 }
 
 static int copy_file(int fd_old, int fd_new, char mode, int line, const char* text) {
@@ -73,18 +78,22 @@ static int copy_file(int fd_old, int fd_new, char mode, int line, const char* te
 
 		// insert line
 		if (mode == 'i' && current_line == line) {
-			insert_line(fd_new, text, strlen(text), current_line++);
+			if (!insert_line(fd_new, text, strlen(text), current_line++))
+				return -1;
 		}
 
 		// replace line
 		if (mode == 'r' && current_line == line) {
-			insert_line(fd_new, text, strlen(text), current_line);
+			if (!insert_line(fd_new, text, strlen(text), current_line))
+				return -1;
 
 			continue;
 		}
 
-		if (len >= 0)
-			insert_line(fd_new, buffer, len, current_line);
+		if (len >= 0) {
+			if (!insert_line(fd_new, buffer, len, current_line))
+				return -1;
+		}
 	}
 
 	return current_line;
@@ -127,10 +136,15 @@ static int file_edit(const char* file, char mode, int line, const char* text) {
 		return -1;
 	}
 
-	copy_file(fd, fd_new, mode, line, text);
+	int ret = copy_file(fd, fd_new, mode, line, text);
 
 	close(fd);
 	close(fd_new);
+
+	if (ret < 0) {
+		printf("error writing file\n");
+		return ret;
+	}
 
 	rename(file_tmp, file);
 
