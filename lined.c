@@ -28,13 +28,13 @@ static char* concat_args(int argc, char** argv) {
 	size_t len = 0;
 	char *_all_args, *all_args;
 
-	for(int i=0; i<argc; i++) {
+	for (int i=0; i<argc; i++) {
 		len += strlen(argv[i]);
 	}
 
 	_all_args = all_args = (char *)malloc(len+argc-1);
 
-	for(int i=0; i<argc; i++) {
+	for (int i=0; i<argc; i++) {
 		memcpy(_all_args, argv[i], strlen(argv[i]));
 		_all_args += strlen(argv[i])+1;
 		*(_all_args-1) = ' ';
@@ -50,13 +50,17 @@ static bool insert_line(int fd, const char* text, size_t len, int line) {
 
 	printf("%d\t%s\n", line, text);
 
-	if (fd < 0)
-		return false;
+	if (fd < 0) { // hack for append
+		return true;
+	}
 
-	if (write(fd, text, len) != len)
+	if (write(fd, text, len) != len) {
 		return false;
-	if (write(fd, &nl, 1) != 1)
+	}
+
+	if (write(fd, &nl, 1) != 1) {
 		return false;
+	}
 
 	return true;
 }
@@ -101,15 +105,23 @@ static int copy_file(int fd_old, int fd_new, char mode, int line, const char* te
 
 static int file_append(const char* file, const char* text) {
 
-	int fd = open(file, O_RDWR | O_CREAT, 0666);
+	int fd;
 
-	if (fd < 0)
+	if (text) {
+		fd = open(file, O_RDWR | O_CREAT, 0644);
+	} else {
+		fd = open(file, O_RDONLY);
+	}
+
+	if (fd < 0) {
 		return -1;
+	}
 
 	int lines = copy_file(fd, -1, 'p', 0, 0);
 
-	if (text != NULL)
+	if (text != NULL) {
 		insert_line(fd, text, strlen(text), lines);
+	}
 
 	close(fd);
 
@@ -125,10 +137,9 @@ static int file_edit(const char* file, char mode, int line, const char* text) {
 	}
 
 	char file_tmp[32];
-	strcpy(file_tmp, file);
-	strcat(file_tmp, ".t");
+	snprintf(file_tmp, sizeof(file_tmp), "%s.t", file);
 
-	int fd_new = open(file_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+	int fd_new = open(file_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (fd_new < 0) {
 		printf("can't open tmp file %s\n", file_tmp);
 
