@@ -53,7 +53,7 @@ static bool insert_line(int fd, const char* text, size_t len, int line) {
 	if (fd < 0)
 		return false;
 
-	if (write(fd, text, len) != len)	
+	if (write(fd, text, len) != len)
 		return false;
 	if (write(fd, &nl, 1) != 1)
 		return false;
@@ -157,22 +157,31 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
+	int res;
 	char* file = argv[1];
 	char* cmd = argv[2];
 	char* text = argc > 3 ? concat_args(argc - 3, &argv[3]) : NULL;
 	int line = atoi(cmd + 1);
 	char mode = cmd[0];
 
-	if (text == NULL && (mode == 'i' || mode == 'r' || mode == 'a'))
+	if (text == NULL && (mode == 'i' || mode == 'r' || mode == 'a')) {
 		return -1;
+	}
 
 	switch (mode) {
 	case 'a':  // append
-		return file_append(file, text);
+		res = file_append(file, text);
+		break;
 	case 'p':  // print
-		return file_append(file, NULL);
+		res = file_append(file, NULL);
+		break;
 	default:
-		return file_edit(file, mode, line, text);
+		res = file_edit(file, mode, line, text);
+		break;
+	}
+
+	if (text) {
+		free(text);
 	}
 
 	return 0;
