@@ -115,6 +115,19 @@ static int _replace(editor_t* file, void* line, const char* text) {
 		return 0;
 	if (!insert_line(file, text, strlen(text)))
 		return -1;
+
+	*(int*)line = -1;
+	return 1; // skip line
+}
+
+static int _substitute(editor_t* file, void* searchstring, const char* text) {
+	printf("s[%s]", searchstring);
+
+	if (strncmp(text, searchstring, strlen(searchstring)))
+		return 0;
+	printf("match!\n");
+	if (!insert_line(file, text, strlen(text)))
+		return -1;
 	return 1; // skip line
 }
 
@@ -181,13 +194,13 @@ static int file_edit(const char* file, edit_function_t* function, void* conditio
 }
 
 int main(int argc, char** argv) {
-	if (argc < 3) {
+	if (argc < 2) {
 		printf("usage: %s [file] [cmd] [text]\n", argv[0]);
 		return -1;
 	}
 
 	char* file = argv[1];
-	char* cmd = argv[2];
+	char* cmd = argc > 2 ? argv[2] : "p";
 	char* text = argc > 3 ? concat_args(argc - 3, &argv[3]) : NULL;
 	int line = atoi(cmd + 1);
 	char mode = cmd[0];
@@ -206,6 +219,9 @@ int main(int argc, char** argv) {
 		return file_edit(file, _replace, &line, text);
 	case 'i': // insert
 		return file_edit(file, _insert, &line, text);
+	case 's': // substitute
+		++cmd;
+		return file_edit(file, _substitute, cmd, text);
 	}
 
 	return 0;
